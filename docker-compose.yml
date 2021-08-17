@@ -31,7 +31,7 @@ version: "3.7"
 services:
   redis:
     image: redis:latest
-    container_name: superset_cache
+    container_name: superset_cache-quotient
     restart: unless-stopped
     ports:
       - "127.0.0.1:6379:6379"
@@ -41,7 +41,7 @@ services:
   db:
     env_file: docker/.env
     image: postgres:10
-    container_name: superset_db
+    container_name: superset_db-quotient
     restart: unless-stopped
     ports:
       - "127.0.0.1:5432:5432"
@@ -51,7 +51,7 @@ services:
   superset:
     env_file: docker/.env
     image: *superset-image
-    container_name: superset_app
+    container_name: superset_app-quotient
     command: ["/app/docker/docker-bootstrap.sh", "app"]
     restart: unless-stopped
     ports:
@@ -63,7 +63,7 @@ services:
       CYPRESS_CONFIG: "${CYPRESS_CONFIG}"
 
   superset-websocket:
-    container_name: superset_websocket
+    container_name: superset_websocket-quotient
     build: ./superset-websocket
     image: superset-websocket
     ports:
@@ -92,7 +92,7 @@ services:
 
   superset-init:
     image: *superset-image
-    container_name: superset_init
+    container_name: superset_init-quotient
     command: ["/app/docker/docker-init.sh"]
     env_file: docker/.env
     depends_on: *superset-depends-on
@@ -103,7 +103,7 @@ services:
 
   superset-node:
     image: node:14
-    container_name: superset_node
+    container_name: superset_node-quotient
     command: ["/app/docker/docker-frontend.sh"]
     env_file: docker/.env
     depends_on: *superset-depends-on
@@ -111,7 +111,7 @@ services:
 
   superset-worker:
     image: *superset-image
-    container_name: superset_worker
+    container_name: superset_worker-quotient
     command: ["/app/docker/docker-bootstrap.sh", "worker"]
     env_file: docker/.env
     restart: unless-stopped
@@ -124,7 +124,7 @@ services:
 
   superset-worker-beat:
     image: *superset-image
-    container_name: superset_worker_beat
+    container_name: superset_worker_beat-quotient
     command: ["/app/docker/docker-bootstrap.sh", "beat"]
     env_file: docker/.env
     restart: unless-stopped
@@ -134,7 +134,7 @@ services:
 
   superset-tests-worker:
     image: *superset-image
-    container_name: superset_tests_worker
+    container_name: superset_tests_worker-quotient
     command: ["/app/docker/docker-bootstrap.sh", "worker"]
     env_file: docker/.env
     environment:
