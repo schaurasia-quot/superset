@@ -35,7 +35,10 @@ from cachelib.base import BaseCache
 from celery.schedules import crontab
 from dateutil import tz
 from flask import Blueprint
-from flask_appbuilder.security.manager import AUTH_DB
+##from flask_appbuilder.security.manager import AUTH_DB
+from authlib.integrations.flask_client import OAuth
+from flask_appbuilder.security.manager import AUTH_OAUTH
+from superset.custom_sso_security_manager import CustomSsoSecurityManager
 from pandas.io.parsers import STR_NA_VALUES
 
 from superset.jinja_context import (  # pylint: disable=unused-import
@@ -150,7 +153,7 @@ SUPERSET_DASHBOARD_PERIODICAL_REFRESH_LIMIT = 0
 SUPERSET_DASHBOARD_PERIODICAL_REFRESH_WARNING_MESSAGE = None
 
 SUPERSET_DASHBOARD_POSITION_DATA_LIMIT = 65535
-CUSTOM_SECURITY_MANAGER = None
+CUSTOM_SECURITY_MANAGER = CustomSsoSecurityManager
 SQLALCHEMY_TRACK_MODIFICATIONS = False
 # ---------------------------------------------------------
 
@@ -217,7 +220,7 @@ PROXY_FIX_CONFIG = {"x_for": 1, "x_proto": 1, "x_host": 1, "x_port": 1, "x_prefi
 APP_NAME = "Superset"
 
 # Specify the App icon
-APP_ICON = "/static/assets/images/superset-logo-horiz.png"
+APP_ICON = "/static/assets/images/logo_quot.svg"
 APP_ICON_WIDTH = 126
 
 # Specify where clicking the logo would take the user
@@ -263,7 +266,31 @@ DRUID_METADATA_LINKS_ENABLED = True
 # AUTH_DB : Is for database (username/password)
 # AUTH_LDAP : Is for LDAP
 # AUTH_REMOTE_USER : Is for using REMOTE_USER from web server
-AUTH_TYPE = AUTH_DB
+AUTH_TYPE = AUTH_OAUTH
+
+OAUTH_PROVIDERS =[
+    {   'name':'AIQSSO',
+        'token_key':'access_token', # Name of the token in the response of access_token_url
+        'icon':'fa-address-card',   # Icon for the provider
+        'remote_app': {
+            'client_id':'superset-rest-client',  # Client Id (Identify Superset application)
+            'client_secret':'superset@2021', # Secret for this Client Id (Identify Superset application)
+            'client_kwargs':{
+                'scope': 'read write'               # Scope for the Authorization
+            },
+            'access_token_method':'POST',    # HTTP Method to call access_token_url
+            'access_token_params':{        # Additional parameters for calls to access_token_url
+                'grant_type':'authorization_code'
+            },
+            'access_token_headers':{    # Additional headers for calls to access_token_url
+                'Authorization': 'Basic c3VwZXJzZXQtcmVzdC1jbGllbnQ6c3VwZXJzZXRAMjAyMQ=='
+            },
+            'api_base_url':'http://portal.dev.quotient.com:8080/OauthProvider',
+            'access_token_url':'http://portal.dev.quotient.com:8080/OauthProvider/oauth/token',
+            'authorize_url':'http://portal.dev.quotient.com:8080/OauthProvider/oauth/authorize'
+        }
+    }
+]
 
 # Uncomment to setup Full admin role name
 # AUTH_ROLE_ADMIN = 'Admin'
