@@ -193,7 +193,7 @@ QUERY_SEARCH_LIMIT = 1000
 WTF_CSRF_ENABLED = True
 
 # Add endpoints that need to be exempt from CSRF protection
-WTF_CSRF_EXEMPT_LIST = ["superset.views.core.log", "superset.charts.api.data"]
+WTF_CSRF_EXEMPT_LIST = ["superset.views.core.log", "superset.charts.api.data", "portal.dev.quotient.com"]
 
 # Whether to run the web server in debug mode or not
 DEBUG = os.environ.get("FLASK_ENV") == "development"
@@ -276,7 +276,7 @@ OAUTH_PROVIDERS =[
             'client_id':'superset-rest-client',  # Client Id (Identify Superset application)
             'client_secret':'superset@2021', # Secret for this Client Id (Identify Superset application)
             'client_kwargs':{
-                'scope': 'read write'               # Scope for the Authorization
+                'scope': 'read write'               # Scope fcsror the Authorization
             },
             'access_token_method':'POST',    # HTTP Method to call access_token_url
             'access_token_params':{        # Additional parameters for calls to access_token_url
