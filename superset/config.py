@@ -190,7 +190,7 @@ SQLALCHEMY_ENCRYPTED_FIELD_TYPE_ADAPTER = SQLAlchemyUtilsAdapter
 QUERY_SEARCH_LIMIT = 1000
 
 # Flask-WTF flag for CSRF
-WTF_CSRF_ENABLED = True
+WTF_CSRF_ENABLED = False
 
 # Add endpoints that need to be exempt from CSRF protection
 WTF_CSRF_EXEMPT_LIST = ["superset.views.core.log", "superset.charts.api.data", "portal.dev.quotient.com"]
@@ -285,9 +285,9 @@ OAUTH_PROVIDERS =[
             'access_token_headers':{    # Additional headers for calls to access_token_url
                 'Authorization': 'Basic c3VwZXJzZXQtcmVzdC1jbGllbnQ6c3VwZXJzZXRAMjAyMQ=='
             },
-            'api_base_url':'http://portal.dev.quotient.com:8080/OauthProvider',
-            'access_token_url':'http://portal.dev.quotient.com:8080/OauthProvider/oauth/token',
-            'authorize_url':'http://portal.dev.quotient.com:8080/OauthProvider/oauth/authorize'
+            'api_base_url':'http://10.215.33.100:8080/OauthProvider',
+            'access_token_url':'http://10.215.33.100:8080/OauthProvider/oauth/token',
+            'authorize_url':'http://10.215.33.100:8080/OauthProvider/oauth/authorize'
         }
     }
 ]
