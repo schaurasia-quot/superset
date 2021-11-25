@@ -1,10 +1,11 @@
 import logging
+
 from superset.security import SupersetSecurityManager
 
 class CustomSsoSecurityManager(SupersetSecurityManager):
-
+      
       def oauth_user_info(self, provider, response=None):
-        print("HAMSAAAAAAAAAAAA")
+        
         logging.info("Oauth2 provider:::::::::::::::::::::::::::::::::: {0}.".format(provider))
         if provider == 'AIQSSO':
             # As example, this line request a GET to base_url + '/' + userDetails with Bearer  Authentication,
