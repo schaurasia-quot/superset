@@ -35,6 +35,8 @@ from superset.utils.core import (
 from .base_tests import SupersetTestCase
 from .fixtures.dataframes import (
     categories_df,
+    single_metric_df,
+    multiple_metrics_df,
     lonlat_df,
     names_df,
     timeseries_df,
@@ -305,6 +307,23 @@ class TestPostProcessing(SupersetTestCase):
         )
         self.assertTrue(np.isnan(df["metric, 1, 1"][0]))
 
+    def test_pivot_without_flatten_columns_and_reset_index(self):
+        df = proc.pivot(
+            df=single_metric_df,
+            index=["dttm"],
+            columns=["country"],
+            aggregates={"sum_metric": {"operator": "sum"}},
+            flatten_columns=False,
+            reset_index=False,
+        )
+        #                metric
+        # country        UK US
+        # dttm
+        # 2019-01-01      5  6
+        # 2019-01-02      7  8
+        assert df.columns.to_list() == [("sum_metric", "UK"), ("sum_metric", "US")]
+        assert df.index.to_list() == to_datetime(["2019-01-01", "2019-01-02"]).to_list()
+
     def test_aggregate(self):
         aggregates = {
             "asc sum": {"column": "asc_idx", "operator": "sum"},
@@ -405,6 +424,60 @@ class TestPostProcessing(SupersetTestCase):
             window=2,
         )
 
+    def test_rolling_with_pivot_df_and_single_metric(self):
+        pivot_df = proc.pivot(
+            df=single_metric_df,
+            index=["dttm"],
+            columns=["country"],
+            aggregates={"sum_metric": {"operator": "sum"}},
+            flatten_columns=False,
+            reset_index=False,
+        )
+        rolling_df = proc.rolling(
+            df=pivot_df, rolling_type="sum", window=2, min_periods=0, is_pivot_df=True,
+        )
+        #         dttm  UK  US
+        # 0 2019-01-01   5   6
+        # 1 2019-01-02  12  14
+        assert rolling_df["UK"].to_list() == [5.0, 12.0]
+        assert rolling_df["US"].to_list() == [6.0, 14.0]
+        assert (
+            rolling_df["dttm"].to_list()
+            == to_datetime(["2019-01-01", "2019-01-02",]).to_list()
+        )
+
+        rolling_df = proc.rolling(
+            df=pivot_df, rolling_type="sum", window=2, min_periods=2, is_pivot_df=True,
+        )
+        assert rolling_df.empty is True
+
+    def test_rolling_with_pivot_df_and_multiple_metrics(self):
+        pivot_df = proc.pivot(
+            df=multiple_metrics_df,
+            index=["dttm"],
+            columns=["country"],
+            aggregates={
+                "sum_metric": {"operator": "sum"},
+                "count_metric": {"operator": "sum"},
+            },
+            flatten_columns=False,
+            reset_index=False,
+        )
+        rolling_df = proc.rolling(
+            df=pivot_df, rolling_type="sum", window=2, min_periods=0, is_pivot_df=True,
+        )
+        #         dttm  count_metric, UK  count_metric, US  sum_metric, UK  sum_metric, US
+        # 0 2019-01-01               1.0               2.0             5.0             6.0
+        # 1 2019-01-02               4.0               6.0            12.0            14.0
+        assert rolling_df["count_metric, UK"].to_list() == [1.0, 4.0]
+        assert rolling_df["count_metric, US"].to_list() == [2.0, 6.0]
+        assert rolling_df["sum_metric, UK"].to_list() == [5.0, 12.0]
+        assert rolling_df["sum_metric, US"].to_list() == [6.0, 14.0]
+        assert (
+            rolling_df["dttm"].to_list()
+            == to_datetime(["2019-01-01", "2019-01-02",]).to_list()
+        )
+
     def test_select(self):
         # reorder columns
         post_df = proc.select(df=timeseries_df, columns=["y", "label"])
@@ -478,18 +551,18 @@ class TestPostProcessing(SupersetTestCase):
         self.assertListEqual(series_to_list(post_df["z"]), [0.0, 2.0, 8.0, 6.0])
 
     def test_compare(self):
-        # `absolute` comparison
+        # `difference` comparison
         post_df = proc.compare(
             df=timeseries_df2,
             source_columns=["y"],
             compare_columns=["z"],
-            compare_type="absolute",
+            compare_type="difference",
         )
         self.assertListEqual(
-            post_df.columns.tolist(), ["label", "y", "z", "absolute__y__z",]
+            post_df.columns.tolist(), ["label", "y", "z", "difference__y__z",]
         )
         self.assertListEqual(
-            series_to_list(post_df["absolute__y__z"]), [0.0, -2.0, -8.0, -6.0],
+            series_to_list(post_df["difference__y__z"]), [0.0, -2.0, -8.0, -6.0],
         )
 
         # drop original columns
@@ -497,10 +570,10 @@ class TestPostProcessing(SupersetTestCase):
             df=timeseries_df2,
             source_columns=["y"],
             compare_columns=["z"],
-            compare_type="absolute",
+            compare_type="difference",
             drop_original_columns=True,
         )
-        self.assertListEqual(post_df.columns.tolist(), ["label", "absolute__y__z",])
+        self.assertListEqual(post_df.columns.tolist(), ["label", "difference__y__z",])
 
         # `percentage` comparison
         post_df = proc.compare(
@@ -513,7 +586,7 @@ class TestPostProcessing(SupersetTestCase):
             post_df.columns.tolist(), ["label", "y", "z", "percentage__y__z",]
         )
         self.assertListEqual(
-            series_to_list(post_df["percentage__y__z"]), [0.0, -1.0, -4.0, -3],
+            series_to_list(post_df["percentage__y__z"]), [0.0, -0.5, -0.8, -0.75],
         )
 
         # `ratio` comparison
@@ -555,6 +628,51 @@ class TestPostProcessing(SupersetTestCase):
             df=timeseries_df,
             columns={"y": "y"},
             operator="abc",
+        )
+
+    def test_cum_with_pivot_df_and_single_metric(self):
+        pivot_df = proc.pivot(
+            df=single_metric_df,
+            index=["dttm"],
+            columns=["country"],
+            aggregates={"sum_metric": {"operator": "sum"}},
+            flatten_columns=False,
+            reset_index=False,
+        )
+        cum_df = proc.cum(df=pivot_df, operator="sum", is_pivot_df=True,)
+        #         dttm  UK  US
+        # 0 2019-01-01   5   6
+        # 1 2019-01-02  12  14
+        assert cum_df["UK"].to_list() == [5.0, 12.0]
+        assert cum_df["US"].to_list() == [6.0, 14.0]
+        assert (
+            cum_df["dttm"].to_list()
+            == to_datetime(["2019-01-01", "2019-01-02",]).to_list()
+        )
+
+    def test_cum_with_pivot_df_and_multiple_metrics(self):
+        pivot_df = proc.pivot(
+            df=multiple_metrics_df,
+            index=["dttm"],
+            columns=["country"],
+            aggregates={
+                "sum_metric": {"operator": "sum"},
+                "count_metric": {"operator": "sum"},
+            },
+            flatten_columns=False,
+            reset_index=False,
+        )
+        cum_df = proc.cum(df=pivot_df, operator="sum", is_pivot_df=True,)
+        #         dttm  count_metric, UK  count_metric, US  sum_metric, UK  sum_metric, US
+        # 0 2019-01-01                 1                 2               5               6
+        # 1 2019-01-02                 4                 6              12              14
+        assert cum_df["count_metric, UK"].to_list() == [1.0, 4.0]
+        assert cum_df["count_metric, US"].to_list() == [2.0, 6.0]
+        assert cum_df["sum_metric, UK"].to_list() == [5.0, 12.0]
+        assert cum_df["sum_metric, US"].to_list() == [6.0, 14.0]
+        assert (
+            cum_df["dttm"].to_list()
+            == to_datetime(["2019-01-01", "2019-01-02",]).to_list()
         )
 
     def test_geohash_decode(self):
@@ -712,6 +830,28 @@ class TestPostProcessing(SupersetTestCase):
         assert df[DTTM_ALIAS].iloc[-1].to_pydatetime() == datetime(2022, 5, 31)
         assert len(df) == 9
 
+    def test_prophet_valid_zero_periods(self):
+        pytest.importorskip("prophet")
+
+        df = proc.prophet(
+            df=prophet_df, time_grain="P1M", periods=0, confidence_interval=0.9
+        )
+        columns = {column for column in df.columns}
+        assert columns == {
+            DTTM_ALIAS,
+            "a__yhat",
+            "a__yhat_upper",
+            "a__yhat_lower",
+            "a",
+            "b__yhat",
+            "b__yhat_upper",
+            "b__yhat_lower",
+            "b",
+        }
+        assert df[DTTM_ALIAS].iloc[0].to_pydatetime() == datetime(2018, 12, 31)
+        assert df[DTTM_ALIAS].iloc[-1].to_pydatetime() == datetime(2021, 12, 31)
+        assert len(df) == 4
+
     def test_prophet_import(self):
         prophet = find_spec("prophet")
         if prophet is None:
@@ -757,7 +897,7 @@ class TestPostProcessing(SupersetTestCase):
             proc.prophet,
             df=prophet_df,
             time_grain="P1M",
-            periods=0,
+            periods=-1,
             confidence_interval=0.8,
         )
 
@@ -869,4 +1009,90 @@ class TestPostProcessing(SupersetTestCase):
                 whisker_type=PostProcessingBoxplotWhiskerType.PERCENTILE,
                 metrics=["cars"],
                 percentiles=[10, 90, 10],
+            )
+
+    def test_resample(self):
+        df = timeseries_df.copy()
+        df.index.name = "time_column"
+        df.reset_index(inplace=True)
+
+        post_df = proc.resample(
+            df=df, rule="1D", method="ffill", time_column="time_column",
+        )
+        self.assertListEqual(
+            post_df["label"].tolist(), ["x", "y", "y", "y", "z", "z", "q"]
+        )
+        self.assertListEqual(post_df["y"].tolist(), [1.0, 2.0, 2.0, 2.0, 3.0, 3.0, 4.0])
+
+        post_df = proc.resample(
+            df=df, rule="1D", method="asfreq", time_column="time_column", fill_value=0,
+        )
+        self.assertListEqual(post_df["label"].tolist(), ["x", "y", 0, 0, "z", 0, "q"])
+        self.assertListEqual(post_df["y"].tolist(), [1.0, 2.0, 0, 0, 3.0, 0, 4.0])
+
+    def test_resample_with_groupby(self):
+        """
+The Dataframe contains a timestamp column, a string column and a numeric column.
+  __timestamp     city  val
+0  2022-01-13  Chicago  6.0
+1  2022-01-13       LA  5.0
+2  2022-01-13       NY  4.0
+3  2022-01-11  Chicago  3.0
+4  2022-01-11       LA  2.0
+5  2022-01-11       NY  1.0
+        """
+        df = DataFrame(
+            {
+                "__timestamp": to_datetime(
+                    [
+                        "2022-01-13",
+                        "2022-01-13",
+                        "2022-01-13",
+                        "2022-01-11",
+                        "2022-01-11",
+                        "2022-01-11",
+                    ]
+                ),
+                "city": ["Chicago", "LA", "NY", "Chicago", "LA", "NY"],
+                "val": [6.0, 5.0, 4.0, 3.0, 2.0, 1.0],
+            }
+        )
+        post_df = proc.resample(
+            df=df,
+            rule="1D",
+            method="asfreq",
+            fill_value=0,
+            time_column="__timestamp",
+            groupby_columns=("city",),
+        )
+        assert list(post_df.columns) == [
+            "__timestamp",
+            "city",
+            "val",
+        ]
+        assert [str(dt.date()) for dt in post_df["__timestamp"]] == (
+            ["2022-01-11"] * 3 + ["2022-01-12"] * 3 + ["2022-01-13"] * 3
+        )
+        assert list(post_df["val"]) == [3.0, 2.0, 1.0, 0, 0, 0, 6.0, 5.0, 4.0]
+
+        # should raise error when get a non-existent column
+        with pytest.raises(QueryObjectValidationError):
+            proc.resample(
+                df=df,
+                rule="1D",
+                method="asfreq",
+                fill_value=0,
+                time_column="__timestamp",
+                groupby_columns=("city", "unkonw_column",),
+            )
+
+        # should raise error when get a None value in groupby list
+        with pytest.raises(QueryObjectValidationError):
+            proc.resample(
+                df=df,
+                rule="1D",
+                method="asfreq",
+                fill_value=0,
+                time_column="__timestamp",
+                groupby_columns=("city", None,),
             )

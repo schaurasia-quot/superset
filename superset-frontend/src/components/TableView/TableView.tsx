@@ -21,7 +21,8 @@ import isEqual from 'lodash/isEqual';
 import { styled, t } from '@superset-ui/core';
 import { useFilters, usePagination, useSortBy, useTable } from 'react-table';
 import { Empty } from 'src/common/components';
-import { TableCollection, Pagination } from 'src/components/dataViewCommon';
+import Pagination from 'src/components/Pagination';
+import TableCollection from 'src/components/TableCollection';
 import { SortByType, ServerPagination } from './types';
 
 const DEFAULT_PAGE_SIZE = 10;
@@ -56,15 +57,14 @@ const EmptyWrapper = styled.div`
 `;
 
 const TableViewStyles = styled.div<{
-  hasPagination?: boolean;
   isPaginationSticky?: boolean;
   scrollTable?: boolean;
   small?: boolean;
 }>`
-  ${({ hasPagination, scrollTable, theme }) =>
+  ${({ scrollTable, theme }) =>
     scrollTable &&
     `
-    height: ${hasPagination ? '300px' : '380px'};
+    flex: 1 1 auto;
     margin-bottom: ${theme.gridUnit * 4}px;
     overflow: auto;
   `}
@@ -159,7 +159,6 @@ const TableView = ({
     useSortBy,
     usePagination,
   );
-
   useEffect(() => {
     if (serverPagination && pageIndex !== initialState.pageIndex) {
       onServerPagination({
@@ -196,7 +195,7 @@ const TableView = ({
 
   return (
     <>
-      <TableViewStyles hasPagination={hasPagination} {...props}>
+      <TableViewStyles {...props}>
         <TableCollection
           getTableProps={getTableProps}
           getTableBodyProps={getTableBodyProps}

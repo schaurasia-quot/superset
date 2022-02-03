@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import React, { useMemo, useRef } from 'react';
+import React, { useRef } from 'react';
 import {
   useDrag,
   useDrop,
@@ -31,7 +31,7 @@ import {
 import { Tooltip } from 'src/components/Tooltip';
 import { StyledColumnOption } from 'src/explore/components/optionRenderers';
 import { styled } from '@superset-ui/core';
-import { ColumnMeta } from '@superset-ui/chart-controls';
+import { ColumnMeta, isAdhocColumn } from '@superset-ui/chart-controls';
 import Option from './Option';
 
 export const OptionLabel = styled.div`
@@ -63,15 +63,11 @@ export default function OptionWrapper(
   const ref = useRef<HTMLDivElement>(null);
   const labelRef = useRef<HTMLDivElement>(null);
 
-  const item: OptionItemInterface = useMemo(
-    () => ({
-      dragIndex: index,
-      type,
-    }),
-    [index, type],
-  );
   const [{ isDragging }, drag] = useDrag({
-    item,
+    item: {
+      type,
+      dragIndex: index,
+    },
     collect: (monitor: DragSourceMonitor) => ({
       isDragging: monitor.isDragging(),
     }),
@@ -99,8 +95,8 @@ export default function OptionWrapper(
       // Determine mouse position
       const clientOffset = monitor.getClientOffset();
       // Get pixels to the top
-      const hoverClientY = clientOffset?.y
-        ? clientOffset?.y - hoverBoundingRect.top
+      const hoverClientY = clientOffset
+        ? clientOffset.y - hoverBoundingRect.top
         : 0;
       // Only perform the move when the mouse has crossed half of the items height
       // When dragging downwards, only move when the cursor is below 50%
@@ -139,14 +135,20 @@ export default function OptionWrapper(
     );
   };
 
-  const ColumnOption = () => (
-    <StyledColumnOption
-      column={column as ColumnMeta}
-      labelRef={labelRef}
-      showTooltip={!!shouldShowTooltip}
-      showType
-    />
-  );
+  const ColumnOption = () => {
+    const transformedCol =
+      column && isAdhocColumn(column)
+        ? { verbose_name: column.label, expression: column.sqlExpression }
+        : column;
+    return (
+      <StyledColumnOption
+        column={transformedCol as ColumnMeta}
+        labelRef={labelRef}
+        showTooltip={!!shouldShowTooltip}
+        showType
+      />
+    );
+  };
 
   const Label = () => {
     if (label) {

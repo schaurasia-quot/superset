@@ -25,6 +25,7 @@ import React, {
   FunctionComponent,
 } from 'react';
 import { t, SupersetTheme } from '@superset-ui/core';
+import { getClientErrorObject } from 'src/utils/getClientErrorObject';
 import { bindActionCreators } from 'redux';
 import { connect, useDispatch, useSelector } from 'react-redux';
 import { addReport, editReport } from 'src/reports/actions/reports';
@@ -33,7 +34,7 @@ import { AlertObject } from 'src/views/CRUD/alert/types';
 import TimezoneSelector from 'src/components/TimezoneSelector';
 import LabeledErrorBoundInput from 'src/components/Form/LabeledErrorBoundInput';
 import Icons from 'src/components/Icons';
-import withToasts from 'src/messageToasts/enhancers/withToasts';
+import withToasts from 'src/components/MessageToasts/withToasts';
 import { CronError } from 'src/components/CronPicker';
 import { RadioChangeEvent } from 'src/common/components';
 import {
@@ -53,7 +54,7 @@ import {
   StyledRadioGroup,
 } from './styles';
 
-interface ReportObject {
+export interface ReportObject {
   id?: number;
   active: boolean;
   crontab: string;
@@ -71,6 +72,8 @@ interface ReportObject {
   validator_type: string;
   working_timeout: number;
   creation_method: string;
+  force_screenshot: boolean;
+  error?: string;
 }
 
 interface ChartObject {
@@ -87,8 +90,6 @@ interface ChartObject {
 }
 
 interface ReportProps {
-  addDangerToast: (msg: string) => void;
-  addSuccessToast: (msg: string) => void;
   addReport: (report?: ReportObject) => {};
   onHide: () => {};
   onReportAdd: (report?: ReportObject) => {};
@@ -110,6 +111,7 @@ enum ActionType {
   inputChange,
   fetched,
   reset,
+  error,
 }
 
 type ReportActionType =
@@ -123,33 +125,54 @@ type ReportActionType =
     }
   | {
       type: ActionType.reset;
+    }
+  | {
+      type: ActionType.error;
+      payload: {
+        name: string[];
+      };
     };
 
-const DEFAULT_NOTIFICATION_FORMAT = 'TEXT';
-const TEXT_BASED_VISUALIZATION_TYPES: string[] = [];
+const TEXT_BASED_VISUALIZATION_TYPES = [
+  'pivot_table',
+  'pivot_table_v2',
+  'table',
+  'paired_ttest',
+];
+
+const NOTIFICATION_FORMATS = {
+  TEXT: 'TEXT',
+  PNG: 'PNG',
+  CSV: 'CSV',
+};
 
 const reportReducer = (
   state: Partial<ReportObject> | null,
   action: ReportActionType,
 ): Partial<ReportObject> | null => {
   const initialState = {
-    name: state?.name || 'Weekly Report',
-    report_format: state?.report_format || DEFAULT_NOTIFICATION_FORMAT,
-    ...(state || {}),
+    name: 'Weekly Report',
   };
 
   switch (action.type) {
     case ActionType.inputChange:
       return {
         ...initialState,
+        ...state,
         [action.payload.name]: action.payload.value,
       };
     case ActionType.fetched:
       return {
+        ...initialState,
         ...action.payload,
       };
     case ActionType.reset:
-      return null;
+      return { ...initialState };
+    case ActionType.error:
+      return {
+        ...state,
+        error: action.payload.name[0],
+      };
     default:
       return state;
   }
@@ -162,18 +185,23 @@ const ReportModal: FunctionComponent<ReportProps> = ({
   ...props
 }) => {
   const vizType = props.props.chart?.sliceFormData?.viz_type;
+  const isChart = !!props.props.chart;
+  const defaultNotificationFormat =
+    isChart && TEXT_BASED_VISUALIZATION_TYPES.includes(vizType)
+      ? NOTIFICATION_FORMATS.TEXT
+      : NOTIFICATION_FORMATS.PNG;
   const [currentReport, setCurrentReport] = useReducer<
     Reducer<Partial<ReportObject> | null, ReportActionType>
   >(reportReducer, null);
-  const onChange = useCallback((type: any, payload: any) => {
+  const onReducerChange = useCallback((type: any, payload: any) => {
     setCurrentReport({ type, payload });
   }, []);
-  const [error, setError] = useState<CronError>();
-  // const [isLoading, setLoading] = useState<boolean>(false);
+  const [cronError, setCronError] = useState<CronError>();
   const dispatch = useDispatch();
   // Report fetch logic
   const reports = useSelector<any, AlertObject>(state => state.reports);
   const isEditMode = reports && Object.keys(reports).length;
+
   useEffect(() => {
     if (isEditMode) {
       const reportsIds = Object.keys(reports);
@@ -188,9 +216,7 @@ const ReportModal: FunctionComponent<ReportProps> = ({
       });
     }
   }, [reports]);
-  const onClose = () => {
-    onHide();
-  };
+
   const onSave = async () => {
     // Create new Report
     const newReportValues: Partial<ReportObject> = {
@@ -209,22 +235,28 @@ const ReportModal: FunctionComponent<ReportProps> = ({
       type: 'Report',
       creation_method: props.props.creationMethod,
       active: true,
-      report_format: currentReport?.report_format,
+      report_format: currentReport?.report_format || defaultNotificationFormat,
+      timezone: currentReport?.timezone,
+      force_screenshot: false,
     };
 
     if (isEditMode) {
       await dispatch(
         editReport(currentReport?.id, newReportValues as ReportObject),
       );
+      onHide();
     } else {
-      await dispatch(addReport(newReportValues as ReportObject));
+      try {
+        await dispatch(addReport(newReportValues as ReportObject));
+        onHide();
+      } catch (e) {
+        const parsedError = await getClientErrorObject(e);
+        const errorMessage = parsedError.message;
+        onReducerChange(ActionType.error, errorMessage);
+      }
     }
 
-    if (onReportAdd) {
-      onReportAdd();
-    }
-
-    onClose();
+    if (onReportAdd) onReportAdd();
   };
 
   const wrappedTitle = (
@@ -238,7 +270,7 @@ const ReportModal: FunctionComponent<ReportProps> = ({
 
   const renderModalFooter = (
     <>
-      <StyledFooterButton key="back" onClick={onClose}>
+      <StyledFooterButton key="back" onClick={onHide}>
         {t('Cancel')}
       </StyledFooterButton>
       <StyledFooterButton
@@ -260,22 +292,22 @@ const ReportModal: FunctionComponent<ReportProps> = ({
       <div className="inline-container">
         <StyledRadioGroup
           onChange={(event: RadioChangeEvent) => {
-            onChange(ActionType.inputChange, {
+            onReducerChange(ActionType.inputChange, {
               name: 'report_format',
               value: event.target.value,
             });
           }}
-          value={currentReport?.report_format || DEFAULT_NOTIFICATION_FORMAT}
+          value={currentReport?.report_format || defaultNotificationFormat}
         >
           {TEXT_BASED_VISUALIZATION_TYPES.includes(vizType) && (
-            <StyledRadio value="TEXT">
+            <StyledRadio value={NOTIFICATION_FORMATS.TEXT}>
               {t('Text embedded in email')}
             </StyledRadio>
           )}
-          <StyledRadio value="PNG">
+          <StyledRadio value={NOTIFICATION_FORMATS.PNG}>
             {t('Image (PNG) embedded in email')}
           </StyledRadio>
-          <StyledRadio value="CSV">
+          <StyledRadio value={NOTIFICATION_FORMATS.CSV}>
             {t('Formatted CSV attached in email')}
           </StyledRadio>
         </StyledRadioGroup>
@@ -286,7 +318,7 @@ const ReportModal: FunctionComponent<ReportProps> = ({
   return (
     <StyledModal
       show={show}
-      onHide={onClose}
+      onHide={onHide}
       title={wrappedTitle}
       footer={renderModalFooter}
       width="432"
@@ -297,18 +329,16 @@ const ReportModal: FunctionComponent<ReportProps> = ({
           id="name"
           name="name"
           value={currentReport?.name || ''}
-          placeholder="Weekly Report"
+          placeholder={t('Weekly Report')}
           required
           validationMethods={{
             onChange: ({ target }: { target: HTMLInputElement }) =>
-              onChange(ActionType.inputChange, {
+              onReducerChange(ActionType.inputChange, {
                 name: target.name,
                 value: target.value,
               }),
           }}
-          errorMessage={
-            currentReport?.name === 'error' ? t('REPORT NAME ERROR') : ''
-          }
+          errorMessage={currentReport?.error || ''}
           label="Report Name"
           data-test="report-name-test"
         />
@@ -319,16 +349,16 @@ const ReportModal: FunctionComponent<ReportProps> = ({
           value={currentReport?.description || ''}
           validationMethods={{
             onChange: ({ target }: { target: HTMLInputElement }) =>
-              onChange(ActionType.inputChange, {
+              onReducerChange(ActionType.inputChange, {
                 name: target.name,
                 value: target.value,
               }),
           }}
-          errorMessage={
-            currentReport?.description === 'error' ? t('DESCRIPTION ERROR') : ''
-          }
-          label="Description"
-          placeholder="Include a description that will be sent with your report"
+          errorMessage=""
+          label={t('Description')}
+          placeholder={t(
+            'Include a description that will be sent with your report',
+          )}
           css={noBottomMargin}
           data-test="report-description-test"
         />
@@ -344,16 +374,16 @@ const ReportModal: FunctionComponent<ReportProps> = ({
 
         <StyledCronPicker
           clearButton={false}
-          value={currentReport?.crontab || '0 12 * * 1'}
+          value={t(currentReport?.crontab || '0 12 * * 1')}
           setValue={(newValue: string) => {
-            onChange(ActionType.inputChange, {
+            onReducerChange(ActionType.inputChange, {
               name: 'crontab',
               value: newValue,
             });
           }}
-          onError={setError}
+          onError={setCronError}
         />
-        <StyledCronError>{error}</StyledCronError>
+        <StyledCronError>{cronError}</StyledCronError>
         <div
           className="control-label"
           css={(theme: SupersetTheme) => TimezoneHeaderStyle(theme)}
@@ -369,7 +399,7 @@ const ReportModal: FunctionComponent<ReportProps> = ({
           }}
           timezone={currentReport?.timezone}
         />
-        {props.props.chart && renderMessageContentSection}
+        {isChart && renderMessageContentSection}
       </StyledBottomSection>
     </StyledModal>
   );

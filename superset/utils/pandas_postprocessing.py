@@ -14,6 +14,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+# pylint: disable=too-many-lines
 import logging
 from decimal import Decimal
 from functools import partial
@@ -90,12 +91,12 @@ PROPHET_TIME_GRAIN_MAP = {
     "PT5M": "5min",
     "PT10M": "10min",
     "PT15M": "15min",
-    "PT0.5H": "30min",
+    "PT30M": "30min",
     "PT1H": "H",
     "P1D": "D",
     "P1W": "W",
     "P1M": "M",
-    "P0.25Y": "Q",
+    "P3M": "Q",
     "P1Y": "A",
     "1969-12-28T00:00:00Z/P1W": "W",
     "1969-12-29T00:00:00Z/P1W": "W",
@@ -131,6 +132,9 @@ def _flatten_column_after_pivot(
 def validate_column_args(*argnames: str) -> Callable[..., Any]:
     def wrapper(func: Callable[..., Any]) -> Callable[..., Any]:
         def wrapped(df: DataFrame, **options: Any) -> Any:
+            if options.get("is_pivot_df"):
+                # skip validation when pivot Dataframe
+                return func(df, **options)
             columns = df.columns.tolist()
             for name in argnames:
                 if name in options and not all(
@@ -223,6 +227,7 @@ def pivot(  # pylint: disable=too-many-arguments,too-many-locals
     marginal_distributions: Optional[bool] = None,
     marginal_distribution_name: Optional[str] = None,
     flatten_columns: bool = True,
+    reset_index: bool = True,
 ) -> DataFrame:
     """
     Perform a pivot operation on a DataFrame.
@@ -243,6 +248,7 @@ def pivot(  # pylint: disable=too-many-arguments,too-many-locals
     :param marginal_distribution_name: Name of row/column with marginal distribution.
            Default to 'All'.
     :param flatten_columns: Convert column names to strings
+    :param reset_index: Convert index to column
     :return: A pivot table
     :raises QueryObjectValidationError: If the request in incorrect
     """
@@ -300,7 +306,8 @@ def pivot(  # pylint: disable=too-many-arguments,too-many-locals
             _flatten_column_after_pivot(col, aggregates) for col in df.columns
         ]
     # return index as regular column
-    df.reset_index(level=0, inplace=True)
+    if reset_index:
+        df.reset_index(level=0, inplace=True)
     return df
 
 
@@ -343,13 +350,14 @@ def sort(df: DataFrame, columns: Dict[str, bool]) -> DataFrame:
 @validate_column_args("columns")
 def rolling(  # pylint: disable=too-many-arguments
     df: DataFrame,
-    columns: Dict[str, str],
     rolling_type: str,
+    columns: Optional[Dict[str, str]] = None,
     window: Optional[int] = None,
     rolling_type_options: Optional[Dict[str, Any]] = None,
     center: bool = False,
     win_type: Optional[str] = None,
     min_periods: Optional[int] = None,
+    is_pivot_df: bool = False,
 ) -> DataFrame:
     """
     Apply a rolling window on the dataset. See the Pandas docs for further details:
@@ -369,11 +377,16 @@ def rolling(  # pylint: disable=too-many-arguments
     :param win_type: Type of window function.
     :param min_periods: The minimum amount of periods required for a row to be included
                         in the result set.
+    :param is_pivot_df: Dataframe is pivoted or not
     :return: DataFrame with the rolling columns
     :raises QueryObjectValidationError: If the request in incorrect
     """
     rolling_type_options = rolling_type_options or {}
-    df_rolling = df[columns.keys()]
+    columns = columns or {}
+    if is_pivot_df:
+        df_rolling = df
+    else:
+        df_rolling = df[columns.keys()]
     kwargs: Dict[str, Union[str, int]] = {}
     if window is None:
         raise QueryObjectValidationError(_("Undefined window for rolling operation"))
@@ -405,10 +418,20 @@ def rolling(  # pylint: disable=too-many-arguments
                 options=rolling_type_options,
             )
         ) from ex
-    df = _append_columns(df, df_rolling, columns)
+
+    if is_pivot_df:
+        agg_in_pivot_df = df.columns.get_level_values(0).drop_duplicates().to_list()
+        agg: Dict[str, Dict[str, Any]] = {col: {} for col in agg_in_pivot_df}
+        df_rolling.columns = [
+            _flatten_column_after_pivot(col, agg) for col in df_rolling.columns
+        ]
+        df_rolling.reset_index(level=0, inplace=True)
+    else:
+        df_rolling = _append_columns(df, df_rolling, columns)
+
     if min_periods:
-        df = df[min_periods:]
-    return df
+        df_rolling = df_rolling[min_periods:]
+    return df_rolling
 
 
 @validate_column_args("columns", "drop", "rename")
@@ -470,9 +493,8 @@ def diff(
     return _append_columns(df, df_diff, columns)
 
 
-# pylint: disable=too-many-arguments
 @validate_column_args("source_columns", "compare_columns")
-def compare(
+def compare(  # pylint: disable=too-many-arguments
     df: DataFrame,
     source_columns: List[str],
     compare_columns: List[str],
@@ -499,17 +521,17 @@ def compare(
         )
     if compare_type not in tuple(PandasPostprocessingCompare):
         raise QueryObjectValidationError(
-            _("`compare_type` must be `absolute`, `percentage` or `ratio`")
+            _("`compare_type` must be `difference`, `percentage` or `ratio`")
         )
     if len(source_columns) == 0:
         return df
 
     for s_col, c_col in zip(source_columns, compare_columns):
-        if compare_type == PandasPostprocessingCompare.ABS:
+        if compare_type == PandasPostprocessingCompare.DIFF:
             diff_series = df[s_col] - df[c_col]
         elif compare_type == PandasPostprocessingCompare.PCT:
             diff_series = (
-                ((df[s_col] - df[c_col]) / df[s_col]).astype(float).round(precision)
+                ((df[s_col] - df[c_col]) / df[c_col]).astype(float).round(precision)
             )
         else:
             # compare_type == "ratio"
@@ -525,7 +547,12 @@ def compare(
 
 
 @validate_column_args("columns")
-def cum(df: DataFrame, columns: Dict[str, str], operator: str) -> DataFrame:
+def cum(
+    df: DataFrame,
+    operator: str,
+    columns: Optional[Dict[str, str]] = None,
+    is_pivot_df: bool = False,
+) -> DataFrame:
     """
     Calculate cumulative sum/product/min/max for select columns.
 
@@ -536,9 +563,14 @@ def cum(df: DataFrame, columns: Dict[str, str], operator: str) -> DataFrame:
            `y2` based on cumulative values calculated from `y`, leaving the original
            column `y` unchanged.
     :param operator: cumulative operator, e.g. `sum`, `prod`, `min`, `max`
+    :param is_pivot_df: Dataframe is pivoted or not
     :return: DataFrame with cumulated columns
     """
-    df_cum = df[columns.keys()]
+    columns = columns or {}
+    if is_pivot_df:
+        df_cum = df
+    else:
+        df_cum = df[columns.keys()]
     operation = "cum" + operator
     if operation not in ALLOWLIST_CUMULATIVE_FUNCTIONS or not hasattr(
         df_cum, operation
@@ -546,7 +578,17 @@ def cum(df: DataFrame, columns: Dict[str, str], operator: str) -> DataFrame:
         raise QueryObjectValidationError(
             _("Invalid cumulative operator: %(operator)s", operator=operator)
         )
-    return _append_columns(df, getattr(df_cum, operation)(), columns)
+    if is_pivot_df:
+        df_cum = getattr(df_cum, operation)()
+        agg_in_pivot_df = df.columns.get_level_values(0).drop_duplicates().to_list()
+        agg: Dict[str, Dict[str, Any]] = {col: {} for col in agg_in_pivot_df}
+        df_cum.columns = [
+            _flatten_column_after_pivot(col, agg) for col in df_cum.columns
+        ]
+        df_cum.reset_index(level=0, inplace=True)
+    else:
+        df_cum = _append_columns(df, getattr(df_cum, operation)(), columns)
+    return df_cum
 
 
 def geohash_decode(
@@ -744,6 +786,7 @@ def prophet(  # pylint: disable=too-many-arguments
     yearly_seasonality: Optional[Union[bool, int]] = None,
     weekly_seasonality: Optional[Union[bool, int]] = None,
     daily_seasonality: Optional[Union[bool, int]] = None,
+    index: Optional[str] = None,
 ) -> DataFrame:
     """
     Add forecasts to each series in a timeseries dataframe, along with confidence
@@ -752,7 +795,6 @@ def prophet(  # pylint: disable=too-many-arguments
 
     - `__yhat`: the forecast for the given date
     - `__yhat_lower`: the lower bound of the forecast for the given date
-    - `__yhat_upper`: the upper bound of the forecast for the given date
     - `__yhat_upper`: the upper bound of the forecast for the given date
 
 
@@ -768,8 +810,10 @@ def prophet(  # pylint: disable=too-many-arguments
     :param daily_seasonality: Should daily seasonality be applied.
            An integer value will specify Fourier order of seasonality, `None` will
            automatically detect seasonality.
+    :param index: the name of the column containing the x-axis data
     :return: DataFrame with contributions, with temporal column at beginning if present
     """
+    index = index or DTTM_ALIAS
     # validate inputs
     if not time_grain:
         raise QueryObjectValidationError(_("Time grain missing"))
@@ -780,21 +824,21 @@ def prophet(  # pylint: disable=too-many-arguments
     freq = PROPHET_TIME_GRAIN_MAP[time_grain]
     # check type at runtime due to marhsmallow schema not being able to handle
     # union types
-    if not periods or periods < 0 or not isinstance(periods, int):
-        raise QueryObjectValidationError(_("Periods must be a positive integer value"))
+    if not isinstance(periods, int) or periods < 0:
+        raise QueryObjectValidationError(_("Periods must be a whole number"))
     if not confidence_interval or confidence_interval <= 0 or confidence_interval >= 1:
         raise QueryObjectValidationError(
             _("Confidence interval must be between 0 and 1 (exclusive)")
         )
-    if DTTM_ALIAS not in df.columns:
+    if index not in df.columns:
         raise QueryObjectValidationError(_("DataFrame must include temporal column"))
     if len(df.columns) < 2:
         raise QueryObjectValidationError(_("DataFrame include at least one series"))
 
     target_df = DataFrame()
-    for column in [column for column in df.columns if column != DTTM_ALIAS]:
+    for column in [column for column in df.columns if column != index]:
         fit_df = _prophet_fit_and_predict(
-            df=df[[DTTM_ALIAS, column]].rename(columns={DTTM_ALIAS: "ds", column: "y"}),
+            df=df[[index, column]].rename(columns={index: "ds", column: "y"}),
             confidence_interval=confidence_interval,
             yearly_seasonality=_prophet_parse_seasonality(yearly_seasonality),
             weekly_seasonality=_prophet_parse_seasonality(weekly_seasonality),
@@ -815,7 +859,7 @@ def prophet(  # pylint: disable=too-many-arguments
             for new_column in new_columns:
                 target_df = target_df.assign(**{new_column: fit_df[new_column]})
     target_df.reset_index(level=0, inplace=True)
-    return target_df.rename(columns={"ds": DTTM_ALIAS})
+    return target_df.rename(columns={"ds": index})
 
 
 def boxplot(
@@ -916,3 +960,43 @@ def boxplot(
         for metric in metrics
     }
     return aggregate(df, groupby=groupby, aggregates=aggregates)
+
+
+@validate_column_args("groupby_columns")
+def resample(  # pylint: disable=too-many-arguments
+    df: DataFrame,
+    rule: str,
+    method: str,
+    time_column: str,
+    groupby_columns: Optional[Tuple[Optional[str], ...]] = None,
+    fill_value: Optional[Union[float, int]] = None,
+) -> DataFrame:
+    """
+    support upsampling in resample
+
+    :param df: DataFrame to resample.
+    :param rule: The offset string representing target conversion.
+    :param method: How to fill the NaN value after resample.
+    :param time_column: existing columns in DataFrame.
+    :param groupby_columns: columns except time_column in dataframe
+    :param fill_value: What values do fill missing.
+    :return: DataFrame after resample
+    :raises QueryObjectValidationError: If the request in incorrect
+    """
+
+    def _upsampling(_df: DataFrame) -> DataFrame:
+        _df = _df.set_index(time_column)
+        if method == "asfreq" and fill_value is not None:
+            return _df.resample(rule).asfreq(fill_value=fill_value)
+        return getattr(_df.resample(rule), method)()
+
+    if groupby_columns:
+        df = (
+            df.set_index(keys=list(groupby_columns))
+            .groupby(by=list(groupby_columns))
+            .apply(_upsampling)
+        )
+        df = df.reset_index().set_index(time_column).sort_index()
+    else:
+        df = _upsampling(df)
+    return df.reset_index()

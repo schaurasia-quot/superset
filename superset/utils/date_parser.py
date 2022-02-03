@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 from time import struct_time
 from typing import Dict, List, Optional, Tuple
 
+import pandas as pd
 import parsedatetime
 from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
@@ -53,7 +54,7 @@ logger = logging.getLogger(__name__)
 
 
 def parse_human_datetime(human_readable: str) -> datetime:
-    """ Returns ``datetime.datetime`` from human readable strings """
+    """Returns ``datetime.datetime`` from human readable strings"""
     x_periods = r"^\s*([0-9]+)\s+(second|minute|hour|day|week|month|quarter|year)s?\s*$"
     if re.search(x_periods, human_readable, re.IGNORECASE):
         raise TimeRangeAmbiguousError(human_readable)
@@ -75,7 +76,7 @@ def parse_human_datetime(human_readable: str) -> datetime:
 
 
 def normalize_time_delta(human_readable: str) -> Dict[str, int]:
-    x_unit = r"^\s*([0-9]+)\s+(second|minute|hour|day|week|month|quarter|year)s?\s+(ago|later)*$"  # pylint: disable=line-too-long
+    x_unit = r"^\s*([0-9]+)\s+(second|minute|hour|day|week|month|quarter|year)s?\s+(ago|later)*$"  # pylint: disable=line-too-long,useless-suppression
     matched = re.match(x_unit, human_readable, re.IGNORECASE)
     if not matched:
         raise TimeDeltaAmbiguousError(human_readable)
@@ -138,8 +139,7 @@ def parse_past_timedelta(
     )
 
 
-# pylint: disable=too-many-arguments, too-many-locals, too-many-branches
-def get_since_until(
+def get_since_until(  # pylint: disable=too-many-arguments,too-many-locals,too-many-branches
     time_range: Optional[str] = None,
     since: Optional[str] = None,
     until: Optional[str] = None,
@@ -189,19 +189,19 @@ def get_since_until(
         and time_range.startswith("previous calendar week")
         and separator not in time_range
     ):
-        time_range = "DATETRUNC(DATEADD(DATETIME('today'), -1, WEEK), WEEK) : DATETRUNC(DATETIME('today'), WEEK)"  # pylint: disable=line-too-long
+        time_range = "DATETRUNC(DATEADD(DATETIME('today'), -1, WEEK), WEEK) : DATETRUNC(DATETIME('today'), WEEK)"  # pylint: disable=line-too-long,useless-suppression
     if (
         time_range
         and time_range.startswith("previous calendar month")
         and separator not in time_range
     ):
-        time_range = "DATETRUNC(DATEADD(DATETIME('today'), -1, MONTH), MONTH) : DATETRUNC(DATETIME('today'), MONTH)"  # pylint: disable=line-too-long
+        time_range = "DATETRUNC(DATEADD(DATETIME('today'), -1, MONTH), MONTH) : DATETRUNC(DATETIME('today'), MONTH)"  # pylint: disable=line-too-long,useless-suppression
     if (
         time_range
         and time_range.startswith("previous calendar year")
         and separator not in time_range
     ):
-        time_range = "DATETRUNC(DATEADD(DATETIME('today'), -1, YEAR), YEAR) : DATETRUNC(DATETIME('today'), YEAR)"  # pylint: disable=line-too-long
+        time_range = "DATETRUNC(DATEADD(DATETIME('today'), -1, YEAR), YEAR) : DATETRUNC(DATETIME('today'), YEAR)"  # pylint: disable=line-too-long,useless-suppression
 
     if time_range and separator in time_range:
         time_range_lookup = [
@@ -211,11 +211,11 @@ def get_since_until(
             ),
             (
                 r"^last\s+([0-9]+)\s+(second|minute|hour|day|week|month|year)s?$",
-                lambda delta, unit: f"DATEADD(DATETIME('{_relative_start}'), -{int(delta)}, {unit})",  # pylint: disable=line-too-long
+                lambda delta, unit: f"DATEADD(DATETIME('{_relative_start}'), -{int(delta)}, {unit})",  # pylint: disable=line-too-long,useless-suppression
             ),
             (
                 r"^next\s+([0-9]+)\s+(second|minute|hour|day|week|month|year)s?$",
-                lambda delta, unit: f"DATEADD(DATETIME('{_relative_end}'), {int(delta)}, {unit})",  # pylint: disable=line-too-long
+                lambda delta, unit: f"DATEADD(DATETIME('{_relative_end}'), {int(delta)}, {unit})",  # pylint: disable=line-too-long,useless-suppression
             ),
             (
                 r"^(DATETIME.*|DATEADD.*|DATETRUNC.*|LASTDAY.*|HOLIDAY.*)$",
@@ -323,10 +323,14 @@ class EvalDateTruncFunc:  # pylint: disable=too-few-public-methods
             dttm = dttm.replace(
                 month=1, day=1, hour=0, minute=0, second=0, microsecond=0
             )
+        if unit == "quarter":
+            dttm = (
+                pd.Period(pd.Timestamp(dttm), freq="Q").to_timestamp().to_pydatetime()
+            )
         elif unit == "month":
             dttm = dttm.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         elif unit == "week":
-            dttm = dttm - relativedelta(days=dttm.weekday())
+            dttm -= relativedelta(days=dttm.weekday())
             dttm = dttm.replace(hour=0, minute=0, second=0, microsecond=0)
         elif unit == "day":
             dttm = dttm.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -444,7 +448,7 @@ def datetime_parser() -> ParseResults:  # pylint: disable=too-many-locals
         + Group(
             date_expr
             + comma
-            + (YEAR | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND)
+            + (YEAR | QUARTER | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND)
             + ppOptional(comma)
         )
         + rparen

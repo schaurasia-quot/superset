@@ -29,6 +29,7 @@ from flask_compress import Compress
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from superset.connectors.connector_registry import ConnectorRegistry
+from superset.constants import CHANGE_ME_SECRET_KEY
 from superset.extensions import (
     _event_logger,
     APP_DIR,
@@ -58,8 +59,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# pylint: disable=R0904
-class SupersetAppInitializer:
+class SupersetAppInitializer:  # pylint: disable=too-many-public-methods
     def __init__(self, app: SupersetApp) -> None:
         super().__init__()
 
@@ -67,7 +67,7 @@ class SupersetAppInitializer:
         self.config = app.config
         self.manifest: Dict[Any, Any] = {}
 
-    @deprecated(details="use self.superset_app instead of self.flask_app")  # type: ignore   # pylint: disable=line-too-long
+    @deprecated(details="use self.superset_app instead of self.flask_app")  # type: ignore   # pylint: disable=line-too-long,useless-suppression
     @property
     def flask_app(self) -> SupersetApp:
         return self.superset_app
@@ -112,12 +112,13 @@ class SupersetAppInitializer:
         # models which in turn try to import
         # the global Flask app
         #
-        # pylint: disable=import-outside-toplevel,too-many-branches,too-many-locals,too-many-statements
-        from superset.annotation_layers.api import AnnotationLayerRestApi
+        # pylint: disable=import-outside-toplevel,too-many-locals,too-many-statements
         from superset.annotation_layers.annotations.api import AnnotationRestApi
+        from superset.annotation_layers.api import AnnotationLayerRestApi
         from superset.async_events.api import AsyncEventsRestApi
         from superset.cachekeys.api import CacheRestApi
         from superset.charts.api import ChartRestApi
+        from superset.charts.data.api import ChartDataRestApi
         from superset.connectors.druid.views import (
             Druid,
             DruidClusterModelView,
@@ -133,15 +134,18 @@ class SupersetAppInitializer:
         )
         from superset.css_templates.api import CssTemplateRestApi
         from superset.dashboards.api import DashboardRestApi
+        from superset.dashboards.filter_sets.api import FilterSetRestApi
+        from superset.dashboards.filter_state.api import DashboardFilterStateRestApi
         from superset.databases.api import DatabaseRestApi
         from superset.datasets.api import DatasetRestApi
         from superset.datasets.columns.api import DatasetColumnsRestApi
         from superset.datasets.metrics.api import DatasetMetricRestApi
+        from superset.explore.form_data.api import ExploreFormDataRestApi
         from superset.queries.api import QueryRestApi
-        from superset.security.api import SecurityRestApi
         from superset.queries.saved_queries.api import SavedQueryRestApi
         from superset.reports.api import ReportScheduleRestApi
         from superset.reports.logs.api import ReportExecutionLogRestApi
+        from superset.security.api import SecurityRestApi
         from superset.views.access_requests import AccessRequestsModelView
         from superset.views.alerts import (
             AlertLogModelView,
@@ -167,6 +171,7 @@ class SupersetAppInitializer:
             DashboardModelViewAsync,
         )
         from superset.views.database.views import (
+            ColumnarToDatabaseView,
             CsvToDatabaseView,
             DatabaseView,
             ExcelToDatabaseView,
@@ -198,16 +203,20 @@ class SupersetAppInitializer:
         appbuilder.add_api(AsyncEventsRestApi)
         appbuilder.add_api(CacheRestApi)
         appbuilder.add_api(ChartRestApi)
+        appbuilder.add_api(ChartDataRestApi)
         appbuilder.add_api(CssTemplateRestApi)
+        appbuilder.add_api(DashboardFilterStateRestApi)
         appbuilder.add_api(DashboardRestApi)
         appbuilder.add_api(DatabaseRestApi)
         appbuilder.add_api(DatasetRestApi)
         appbuilder.add_api(DatasetColumnsRestApi)
         appbuilder.add_api(DatasetMetricRestApi)
+        appbuilder.add_api(ExploreFormDataRestApi)
+        appbuilder.add_api(FilterSetRestApi)
         appbuilder.add_api(QueryRestApi)
-        appbuilder.add_api(SavedQueryRestApi)
         appbuilder.add_api(ReportScheduleRestApi)
         appbuilder.add_api(ReportExecutionLogRestApi)
+        appbuilder.add_api(SavedQueryRestApi)
         #
         # Setup regular views
         #
@@ -265,7 +274,7 @@ class SupersetAppInitializer:
         appbuilder.add_view(
             RowLevelSecurityFiltersModelView,
             "Row Level Security",
-            label=__("Row level security"),
+            label=__("Row Level Security"),
             category="Security",
             category_label=__("Security"),
             icon="fa-lock",
@@ -281,6 +290,7 @@ class SupersetAppInitializer:
         appbuilder.add_view_no_menu(CssTemplateAsyncModelView)
         appbuilder.add_view_no_menu(CsvToDatabaseView)
         appbuilder.add_view_no_menu(ExcelToDatabaseView)
+        appbuilder.add_view_no_menu(ColumnarToDatabaseView)
         appbuilder.add_view_no_menu(Dashboard)
         appbuilder.add_view_no_menu(DashboardModelViewAsync)
         appbuilder.add_view_no_menu(Datasource)
@@ -371,7 +381,20 @@ class SupersetAppInitializer:
                 )
             ),
         )
-
+        appbuilder.add_link(
+            "Upload a Columnar file",
+            label=__("Upload a Columnar File"),
+            href="/columnartodatabaseview/form",
+            icon="fa-upload",
+            category="Data",
+            category_label=__("Data"),
+            category_icon="fa-wrench",
+            cond=lambda: bool(
+                self.config["COLUMNAR_EXTENSIONS"].intersection(
+                    self.config["ALLOWED_EXTENSIONS"]
+                )
+            ),
+        )
         try:
             import xlrd  # pylint: disable=unused-import
 
@@ -552,12 +575,27 @@ class SupersetAppInitializer:
 
         self.init_views()
 
+    def check_secret_key(self) -> None:
+        if self.config["SECRET_KEY"] == CHANGE_ME_SECRET_KEY:
+            top_banner = 80 * "-" + "\n" + 36 * " " + "WARNING\n" + 80 * "-"
+            bottom_banner = 80 * "-" + "\n" + 80 * "-"
+            logger.warning(top_banner)
+            logger.warning(
+                "A Default SECRET_KEY was detected, please use superset_config.py "
+                "to override it.\n"
+                "Use a strong complex alphanumeric string and use a tool to help"
+                " you generate \n"
+                "a sufficiently random sequence, ex: openssl rand -base64 42"
+            )
+            logger.warning(bottom_banner)
+
     def init_app(self) -> None:
         """
         Main entry point which will delegate to other methods in
         order to fully init the app
         """
         self.pre_init()
+        self.check_secret_key()
         # Configuration of logging must be done first to apply the formatter properly
         self.configure_logging()
         # Configuration of feature_flags must be done first to allow init features

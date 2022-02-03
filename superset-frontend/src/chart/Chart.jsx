@@ -44,13 +44,16 @@ const propTypes = {
   // formData contains chart's own filter parameter
   // and merged with extra filter that current dashboard applying
   formData: PropTypes.object.isRequired,
+  labelColors: PropTypes.object,
   width: PropTypes.number,
   height: PropTypes.number,
   setControlValue: PropTypes.func,
   timeout: PropTypes.number,
   vizType: PropTypes.string.isRequired,
   triggerRender: PropTypes.bool,
+  force: PropTypes.bool,
   isFiltersInitialized: PropTypes.bool,
+  isDeactivatedViz: PropTypes.bool,
   // state
   chartAlert: PropTypes.string,
   chartStatus: PropTypes.string,
@@ -68,6 +71,9 @@ const propTypes = {
 };
 
 const BLANK = {};
+const NONEXISTENT_DATASET = t(
+  'The dataset associated with this chart no longer exists',
+);
 
 const defaultProps = {
   addFilter: () => BLANK,
@@ -78,6 +84,8 @@ const defaultProps = {
   triggerRender: false,
   dashboardId: null,
   chartStackTrace: null,
+  isDeactivatedViz: false,
+  force: false,
 };
 
 const Styles = styled.div`
@@ -104,19 +112,30 @@ const RefreshOverlayWrapper = styled.div`
 class Chart extends React.PureComponent {
   constructor(props) {
     super(props);
-    this.handleRenderContainerFailure = this.handleRenderContainerFailure.bind(
-      this,
-    );
+    this.handleRenderContainerFailure =
+      this.handleRenderContainerFailure.bind(this);
   }
 
   componentDidMount() {
-    if (this.props.triggerQuery) {
+    // during migration, hold chart queries before user choose review or cancel
+    if (
+      this.props.triggerQuery &&
+      this.props.filterboxMigrationState !== 'UNDECIDED'
+    ) {
       this.runQuery();
     }
   }
 
   componentDidUpdate() {
-    if (this.props.triggerQuery) {
+    // during migration, hold chart queries before user choose review or cancel
+    if (
+      this.props.triggerQuery &&
+      this.props.filterboxMigrationState !== 'UNDECIDED'
+    ) {
+      // if the chart is deactivated (filter_box), only load once
+      if (this.props.isDeactivatedViz && this.props.queriesResponse) {
+        return;
+      }
       this.runQuery();
     }
   }
@@ -126,7 +145,7 @@ class Chart extends React.PureComponent {
       // Load saved chart with a GET request
       this.props.actions.getSavedChart(
         this.props.formData,
-        false,
+        this.props.force,
         this.props.timeout,
         this.props.chartId,
         this.props.dashboardId,
@@ -136,7 +155,7 @@ class Chart extends React.PureComponent {
       // Create chart with POST request
       this.props.actions.postChartFormData(
         this.props.formData,
-        false,
+        this.props.force,
         this.props.timeout,
         this.props.chartId,
         this.props.dashboardId,
@@ -178,7 +197,11 @@ class Chart extends React.PureComponent {
     const message = chartAlert || queryResponse?.message;
 
     // if datasource is still loading, don't render JS errors
-    if (chartAlert && datasource === PLACEHOLDER_DATASOURCE) {
+    if (
+      chartAlert !== undefined &&
+      chartAlert !== NONEXISTENT_DATASET &&
+      datasource === PLACEHOLDER_DATASOURCE
+    ) {
       return (
         <Styles
           data-ui-anchor="chart"
@@ -213,6 +236,8 @@ class Chart extends React.PureComponent {
       onQuery,
       refreshOverlayVisible,
       queriesResponse = [],
+      isDeactivatedViz = false,
+      width,
     } = this.props;
 
     const isLoading = chartStatus === 'loading';
@@ -242,6 +267,7 @@ class Chart extends React.PureComponent {
           className="chart-container"
           data-test="chart-container"
           height={height}
+          width={width}
         >
           <div
             className={`slice_container ${isFaded ? ' faded' : ''}`}
@@ -258,7 +284,7 @@ class Chart extends React.PureComponent {
             </RefreshOverlayWrapper>
           )}
 
-          {isLoading && <Loading />}
+          {isLoading && !isDeactivatedViz && <Loading />}
         </Styles>
       </ErrorBoundary>
     );
