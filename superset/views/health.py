@@ -16,7 +16,7 @@
 # under the License.
 from superset import app, talisman
 from superset.typing import FlaskResponse
-
+from flask import Flask, render_template
 
 @talisman(force_https=False)
 @app.route("/ping")
@@ -34,3 +34,8 @@ def healthcheck() -> FlaskResponse:
 @app.route("/health")
 def health() -> FlaskResponse:
     return "OK"
+
+@app.route('/errorpage')
+def index() -> FlaskResponse:
+    print('I am here')
+    return render_template('superset/errorPage.html')
