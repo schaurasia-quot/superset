@@ -11,3 +11,10 @@
 
 # The following packages are considered to be unsafe in a requirements file:
 # setuptools
+
+authlib
+pybigquery
+snowflake-sqlalchemy
+sqlalchemy
+sqlalchemy-utils
+python-jose
