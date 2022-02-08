@@ -160,8 +160,9 @@ extraConfigMountPath: "/app/configs"
 
 image:
   repository: gcr.io/sparksandbox/sc-test/superset
-  tag: 1.0.2
+  tag: 1.0.1
   pullPolicy: IfNotPresent
+
 
 imagePullSecrets: []
 
@@ -222,7 +223,7 @@ supersetNode:
   connections:
     redis_host: '{{ template "superset.fullname" . }}-redis-headless'
     redis_port: "6379"
-    db_host: '{{ template "superset.fullname" . }}-postgresql'
+    db_host: 'quot-postgres-postgresql'
     db_port: "5432"
     db_user: superset
     db_pass: superset
@@ -267,7 +268,7 @@ supersetWorker:
 ## Superset beat configuration (to trigger scheduled jobs like reports)
 supersetCeleryBeat:
   # This is only required if you intend to use alerts and reports
-  enabled: false
+  enabled: true
   command:
     - "/bin/sh"
     - "-c"
@@ -304,7 +305,7 @@ init:
     - "-c"
     - ". {{ .Values.configMountPath }}/superset_bootstrap.sh; . {{ .Values.configMountPath }}/superset_init.sh"
   enabled: true
-  loadExamples: false
+  loadExamples: true
   createAdmin: true
   adminUser:
     username: admin
@@ -354,7 +355,7 @@ postgresql:
   ##
   ## Use the PostgreSQL chart dependency.
   ## Set to false if bringing your own PostgreSQL.
-  enabled: true
+  enabled: false
   ##
   ## The name of an existing secret that contains the postgres password.
   existingSecret:
@@ -363,7 +364,8 @@ postgresql:
   ##
   ## If you are bringing your own PostgreSQL, you should set postgresHost and
   ## also probably service.port, postgresqlUsername, postgresqlPassword, and postgresqlDatabase
-  ## postgresHost:
+  postgresHost: localhost
+  #image: gcr.io/sparksandbox/sc-test/postgres:v1
   ##
   ## PostgreSQL port
   service:

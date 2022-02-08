@@ -273,7 +273,7 @@ function Welcome({ user, addDangerToast }: WelcomeProps) {
         ) : null}
       </WelcomeNav>
       <Collapse activeKey={activeState} onChange={handleCollapse} ghost bigger>
-        <Collapse.Panel header={t('Recents')} key="1">
+        <Collapse.Panel header={t('Saumik')} key="1">
           {activityData &&
           (activityData.Viewed ||
             activityData.Examples ||
@@ -290,7 +290,7 @@ function Welcome({ user, addDangerToast }: WelcomeProps) {
             <LoadingCards />
           )}
         </Collapse.Panel>
-        <Collapse.Panel header={t('Dashboards')} key="2">
+        <Collapse.Panel header={t('Prasnth')} key="2">
           {!dashboardData || isRecentActivityLoading ? (
             <LoadingCards cover={checked} />
           ) : (
