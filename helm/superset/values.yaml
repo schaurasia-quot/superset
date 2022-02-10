@@ -160,7 +160,7 @@ extraConfigMountPath: "/app/configs"
 
 image:
   repository: gcr.io/sparksandbox/sc-test/superset
-  tag: 1.0.1
+  tag: 1.0.3
   pullPolicy: IfNotPresent
 
 
@@ -168,11 +168,11 @@ imagePullSecrets: []
 
 
 service:
-  type: ClusterIP
+  type: LoadBalancer
   port: 8088
-  annotations: {}
-    # cloud.google.com/load-balancer-type: "Internal"
-  loadBalancerIP: null
+  annotations: 
+    cloud.google.com/load-balancer-type: "Internal"
+  #loadBalancerIP: null
 
 ingress:
   enabled: false
@@ -225,9 +225,9 @@ supersetNode:
     redis_port: "6379"
     db_host: 'quot-postgres-postgresql'
     db_port: "5432"
-    db_user: superset
-    db_pass: superset
-    db_name: superset
+    db_user: 'superset'
+    db_pass: 'superset'
+    db_name: 'superset-hp-new'
   env: {}
   forceReload: false # If true, forces deployment to reload on each upgrade
   initContainers:
@@ -360,7 +360,7 @@ postgresql:
   ## The name of an existing secret that contains the postgres password.
   existingSecret:
   ## Name of the key containing the secret.
-  existingSecretKey: postgresql-password
+  existingSecretKey: test
   ##
   ## If you are bringing your own PostgreSQL, you should set postgresHost and
   ## also probably service.port, postgresqlUsername, postgresqlPassword, and postgresqlDatabase
@@ -378,7 +378,7 @@ postgresql:
   postgresqlPassword: superset
   ##
   ## PostgreSQL Database to create.
-  postgresqlDatabase: superset
+  postgresqlDatabase: superset-hp-new
   ##
   ## Persistent Volume Storage configuration.
   ## ref: https://kubernetes.io/docs/user-guide/persistent-volumes
