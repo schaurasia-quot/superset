@@ -54,7 +54,8 @@ envFromSecrets: []
 
 ## Extra environment variables that will be passed into pods
 ##
-extraEnv: {}
+extraEnv: 
+  DATABASE_DIALECT : mysqlclient
   # Extend timeout to allow long running queries.
   # GUNICORN_TIMEOUT: 300
 
@@ -115,14 +116,16 @@ extraVolumeMounts: []
 
 # A dictionary of overrides to append at the end of superset_config.py - the name does not matter
 # WARNING: the order is not guaranteed
-configOverrides: {}
+configOverrides: 
   #  extend_timeout: |
   #    # Extend timeout to allow long running queries.
   #    SUPERSET_WEBSERVER_TIMEOUT = ...
+    my_override: |
+      SQLALCHEMY_DATABASE_URI = f"mysql://{env('DB_USER')}:{env('DB_PASS')}@{env('DB_HOST')}:{env('DB_PORT')}/{env('DB_NAME')}"
   # enable_oauth: |
   #   from flask_appbuilder.security.manager import (AUTH_DB, AUTH_OAUTH)
   #   AUTH_TYPE = AUTH_OAUTH
-
+      
   #   OAUTH_PROVIDERS = [
   #       {
   #           "name": "google",
@@ -160,7 +163,7 @@ extraConfigMountPath: "/app/configs"
 
 image:
   repository: gcr.io/sparksandbox/sc-test/superset
-  tag: 1.0.3
+  tag: 1.0.6
   pullPolicy: IfNotPresent
 
 
@@ -223,11 +226,11 @@ supersetNode:
   connections:
     redis_host: '{{ template "superset.fullname" . }}-redis-headless'
     redis_port: "6379"
-    db_host: 'quot-postgres-postgresql'
-    db_port: "5432"
-    db_user: 'superset'
-    db_pass: 'superset'
-    db_name: 'superset-hp-new'
+    db_host: '35.227.150.134'
+    db_port: "3306"
+    db_user: 'superset-poc'
+    db_pass: 'Sup3rs3t!483'
+    db_name: 'superset'
   env: {}
   forceReload: false # If true, forces deployment to reload on each upgrade
   initContainers:
@@ -324,10 +327,11 @@ init:
   initscript: |-
     #!/bin/sh
     set -eu
-    echo "Upgrading DB schema..."
+    echo "Upgrading DB schema...----------->"
     superset db upgrade
-    echo "Initializing roles..."
+    echo "Initializing roles...------------>"
     superset init
+    echo "done --------------> init"
     {{ if .Values.init.createAdmin }}
     echo "Creating admin user..."
     superset fab create-admin \
@@ -341,6 +345,7 @@ init:
     {{ if .Values.init.loadExamples }}
     echo "Loading examples..."
     superset load_examples
+    echo "done --------------> examples"
     {{- end }}
     if [ -f "{{ .Values.extraConfigMountPath }}/import_datasources.yaml" ]; then
       echo "Importing database connections.... "
@@ -378,7 +383,7 @@ postgresql:
   postgresqlPassword: superset
   ##
   ## PostgreSQL Database to create.
-  postgresqlDatabase: superset-hp-new
+  postgresqlDatabase: superset-sc
   ##
   ## Persistent Volume Storage configuration.
   ## ref: https://kubernetes.io/docs/user-guide/persistent-volumes
